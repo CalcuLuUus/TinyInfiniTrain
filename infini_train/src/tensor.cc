@@ -177,7 +177,7 @@ Tensor Tensor::To(Device device) {
     if (device == buffer_->GetDevice()) {
         auto new_tensor = Tensor(*this, offset_, dims_);
         if (grad_) {
-            new_tensor.grad_ = std::make_unique<Tensor>(*grad_.get(), grad_->offset_, grad_->dims_);
+            new_tensor.grad_ = std::make_shared<Tensor>(*grad_, grad_->offset_, grad_->dims_);
         }
         return new_tensor;
     }
@@ -201,7 +201,7 @@ Tensor Tensor::To(Device device) {
     }
 
     if (grad_) {
-        new_tensor.grad_ = std::make_unique<Tensor>(grad_->To(device));
+        new_tensor.grad_ = std::make_shared<Tensor>(grad_->To(device));
     }
 
     new_tensor.requires_grad_ = requires_grad_;
@@ -282,8 +282,40 @@ std::shared_ptr<Tensor> Tensor::Flatten(int64_t start, int64_t end) {
     // TODO：实现张量扁平化操作，将指定维度范围[start, end]内的所有维度合并为一个维度
     // HINT:
     // =================================== 作业 ===================================
+    if (dims_.empty()) {
+        // Scalar tensor: flatten to a single element.
+        return Contiguous()->View({1});
+    }
 
-    return std::make_shared<Tensor>();
+    const int64_t ndim = static_cast<int64_t>(dims_.size());
+    if (start < 0) {
+        start += ndim;
+    }
+    if (end < 0) {
+        end += ndim;
+    }
+    CHECK_GE(start, 0);
+    CHECK_LT(start, ndim);
+    CHECK_GE(end, 0);
+    CHECK_LT(end, ndim);
+    CHECK_LE(start, end);
+
+    std::vector<int64_t> new_shape;
+    new_shape.reserve(ndim - (end - start));
+
+    for (int64_t i = 0; i < start; ++i) {
+        new_shape.push_back(dims_[i]);
+    }
+    int64_t merged = 1;
+    for (int64_t i = start; i <= end; ++i) {
+        merged *= dims_[i];
+    }
+    new_shape.push_back(merged);
+    for (int64_t i = end + 1; i < ndim; ++i) {
+        new_shape.push_back(dims_[i]);
+    }
+
+    return Contiguous()->View(new_shape);
 }
 
 std::shared_ptr<Tensor> Tensor::Squeeze(int64_t dim) {
@@ -347,7 +379,7 @@ std::shared_ptr<Tensor> Tensor::Uniform(float from, float to, std::optional<std:
 std::shared_ptr<Tensor> Tensor::RequiresGrad() {
     requires_grad_ = true;
     if (!grad_) {
-        grad_ = std::make_unique<Tensor>(dims_, dtype_, GetDevice());
+        grad_ = std::make_shared<Tensor>(dims_, dtype_, GetDevice());
         grad_->Fill<float>(0.0f);
     }
     return shared_from_this();
@@ -358,6 +390,38 @@ void Tensor::Backward(std::shared_ptr<Tensor> gradient, bool retain_graph, bool 
     // TODO：实现自动微分反向传播
     // 功能描述：1. 计算当前张量对叶子节点的梯度    2. 支持多输出场景的梯度累加
     // =================================== 作业 ===================================
+    (void)retain_graph;
+    (void)create_graph;
+
+    if (!requires_grad_) {
+        return;
+    }
+
+    if (!gradient) {
+        // Default gradient for scalar outputs.
+        CHECK_EQ(NumElements(), 1) << "Non-scalar tensor requires an explicit gradient.";
+        gradient = std::make_shared<Tensor>(dims_, dtype_, GetDevice());
+        gradient->Fill<float>(1.0f);
+    } else {
+        CHECK_EQ(gradient->NumElements(), NumElements());
+        CHECK_EQ(static_cast<int>(gradient->GetDevice().Type()), static_cast<int>(GetDevice().Type()));
+    }
+
+    if (is_leaf_) {
+        // Accumulate gradient into leaf tensor's .grad.
+        CHECK(grad_) << "Leaf tensor has no grad buffer. Call RequiresGrad() before Backward().";
+        auto device = GetDevice().Type();
+        auto kernel = Dispatcher::Instance().GetKernel({device, "AccumulateGrad"});
+        kernel.Call<void>(gradient, 1.0f, grad_);
+        return;
+    }
+
+    if (!grad_fn_) {
+        // No grad function to backpropagate.
+        return;
+    }
+
+    grad_fn_->BackwardPartial(gradient, output_idx_);
 }
 
 void Tensor::ZeroGrad() {
