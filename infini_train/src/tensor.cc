@@ -56,6 +56,12 @@ template <> struct TypeMap<DataType::kINT64> {
 } // namespace
 
 TensorBuffer::TensorBuffer(Device device, size_t size) : device_(device), size_(size) {
+#ifndef USE_CUDA
+    if (device_.Type() == DeviceType::kCUDA) {
+        LOG(WARNING) << "CUDA requested but USE_CUDA=OFF; falling back to CPU.";
+        device_ = Device(DeviceType::kCPU, 0);
+    }
+#endif
     switch (device_.Type()) {
     case DeviceType::kCPU:
         data_ = malloc(size);
@@ -174,6 +180,12 @@ Eigen::Map<Eigen::Matrix<float, 1, Eigen::Dynamic, Eigen::RowMajor>> Tensor::Eig
 }
 
 Tensor Tensor::To(Device device) {
+#ifndef USE_CUDA
+    if (device.Type() == DeviceType::kCUDA) {
+        LOG(WARNING) << "CUDA requested but USE_CUDA=OFF; falling back to CPU.";
+        device = Device(DeviceType::kCPU, 0);
+    }
+#endif
     if (device == buffer_->GetDevice()) {
         auto new_tensor = Tensor(*this, offset_, dims_);
         if (grad_) {
@@ -194,6 +206,12 @@ Tensor Tensor::To(Device device) {
         // CPU -> CUDA
         new_tensor = Tensor(dims_, dtype_, Device(DeviceType::kCUDA, 0));
         cudaMemcpyAsync(new_tensor.DataPtr(), DataPtr(), SizeInBytes(), cudaMemcpyHostToDevice, 0);
+        break;
+#else
+    case DeviceType::kCPU:
+        // CPU -> CPU
+        new_tensor = Tensor(dims_, dtype_, Device(DeviceType::kCPU, 0));
+        std::memcpy(new_tensor.DataPtr(), DataPtr(), SizeInBytes());
         break;
 #endif
     default:
