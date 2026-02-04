@@ -1,6 +1,7 @@
 #include <cctype>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "infini_train/include/device.h"

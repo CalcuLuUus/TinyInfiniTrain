@@ -272,105 +272,109 @@ std::unique_ptr<GPT2> GPT2::FromLLMC(const std::string &filepath) {
     auto state_dict = gpt2->StateDict();
     // transformer.wte.weight
     // (padded_vocab_size, n_embd) -> un_pad -> (vocab_size, n_embd)
-    auto &transformer_wte_weight = state_dict[std::format("{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kWTELayerName,
-                                                          nn::Embedding::kParamWeightName)];
+    auto &transformer_wte_weight
+        = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kWTELayerName + "."
+                     + nn::Embedding::kParamWeightName];
     ifs.read(reinterpret_cast<char *>(transformer_wte_weight->DataPtr()), transformer_wte_weight->SizeInBytes());
     ifs.ignore((padded_vocab_size - vocab_size) * n_embd * sizeof(float));
     // transformer.wpe.weight
-    auto &transformer_wpe_weight = state_dict[std::format("{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kWPELayerName,
-                                                          nn::Embedding::kParamWeightName)];
+    auto &transformer_wpe_weight
+        = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kWPELayerName + "."
+                     + nn::Embedding::kParamWeightName];
     ifs.read(reinterpret_cast<char *>(transformer_wpe_weight->DataPtr()), transformer_wpe_weight->SizeInBytes());
     // transformer.h.{i}.ln_1.weight
     for (int idx = 0; idx < n_layer; idx++) {
-        auto &tensor
-            = state_dict[std::format("{}.{}.{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kHLayerName,
-                                     std::to_string(idx), Block::kLn1LayerName, nn::LayerNorm::kParamWeightName)];
+        auto &tensor = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kHLayerName + "."
+                                  + std::to_string(idx) + "." + Block::kLn1LayerName + "."
+                                  + nn::LayerNorm::kParamWeightName];
         ifs.read(reinterpret_cast<char *>(tensor->DataPtr()), tensor->SizeInBytes());
     }
     // transformer.h.{i}.ln_1.bias
     for (int idx = 0; idx < n_layer; idx++) {
-        auto &tensor
-            = state_dict[std::format("{}.{}.{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kHLayerName,
-                                     std::to_string(idx), Block::kLn1LayerName, nn::LayerNorm::kParamBiasName)];
+        auto &tensor = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kHLayerName + "."
+                                  + std::to_string(idx) + "." + Block::kLn1LayerName + "."
+                                  + nn::LayerNorm::kParamBiasName];
         ifs.read(reinterpret_cast<char *>(tensor->DataPtr()), tensor->SizeInBytes());
     }
     // transformer.h.{i}.attn.c_attn.weight
     for (int idx = 0; idx < n_layer; idx++) {
-        auto &tensor = state_dict[std::format("{}.{}.{}.{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kHLayerName,
-                                              std::to_string(idx), Block::kAttnLayerName,
-                                              CausalSelfAttention::kCAttnLayerName, GPT2Linear::kParamWeightName)];
+        auto &tensor = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kHLayerName + "."
+                                  + std::to_string(idx) + "." + Block::kAttnLayerName + "."
+                                  + CausalSelfAttention::kCAttnLayerName + "." + GPT2Linear::kParamWeightName];
         ifs.read(reinterpret_cast<char *>(tensor->DataPtr()), tensor->SizeInBytes());
     }
     // transformer.h.{i}.attn.c_attn.bias
     for (int idx = 0; idx < n_layer; idx++) {
-        auto &tensor = state_dict[std::format("{}.{}.{}.{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kHLayerName,
-                                              std::to_string(idx), Block::kAttnLayerName,
-                                              CausalSelfAttention::kCAttnLayerName, GPT2Linear::kParamBiasName)];
+        auto &tensor = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kHLayerName + "."
+                                  + std::to_string(idx) + "." + Block::kAttnLayerName + "."
+                                  + CausalSelfAttention::kCAttnLayerName + "." + GPT2Linear::kParamBiasName];
         ifs.read(reinterpret_cast<char *>(tensor->DataPtr()), tensor->SizeInBytes());
     }
     // transformer.h.{i}.attn.c_proj.weight
     for (int idx = 0; idx < n_layer; idx++) {
-        auto &tensor = state_dict[std::format("{}.{}.{}.{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kHLayerName,
-                                              std::to_string(idx), Block::kAttnLayerName,
-                                              CausalSelfAttention::kCProjLayerName, GPT2Linear::kParamWeightName)];
+        auto &tensor = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kHLayerName + "."
+                                  + std::to_string(idx) + "." + Block::kAttnLayerName + "."
+                                  + CausalSelfAttention::kCProjLayerName + "." + GPT2Linear::kParamWeightName];
         ifs.read(reinterpret_cast<char *>(tensor->DataPtr()), tensor->SizeInBytes());
     }
     // transformer.h.{i}.attn.c_proj.bias
     for (int idx = 0; idx < n_layer; idx++) {
-        auto &tensor = state_dict[std::format("{}.{}.{}.{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kHLayerName,
-                                              std::to_string(idx), Block::kAttnLayerName,
-                                              CausalSelfAttention::kCProjLayerName, GPT2Linear::kParamBiasName)];
+        auto &tensor = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kHLayerName + "."
+                                  + std::to_string(idx) + "." + Block::kAttnLayerName + "."
+                                  + CausalSelfAttention::kCProjLayerName + "." + GPT2Linear::kParamBiasName];
         ifs.read(reinterpret_cast<char *>(tensor->DataPtr()), tensor->SizeInBytes());
     }
     // transformer.h.{i}.ln_2.weight
     for (int idx = 0; idx < n_layer; idx++) {
-        auto &tensor
-            = state_dict[std::format("{}.{}.{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kHLayerName,
-                                     std::to_string(idx), Block::kLn2LayerName, nn::LayerNorm::kParamWeightName)];
+        auto &tensor = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kHLayerName + "."
+                                  + std::to_string(idx) + "." + Block::kLn2LayerName + "."
+                                  + nn::LayerNorm::kParamWeightName];
         ifs.read(reinterpret_cast<char *>(tensor->DataPtr()), tensor->SizeInBytes());
     }
     // transformer.h.{i}.ln_2.bias
     for (int idx = 0; idx < n_layer; idx++) {
-        auto &tensor
-            = state_dict[std::format("{}.{}.{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kHLayerName,
-                                     std::to_string(idx), Block::kLn2LayerName, nn::LayerNorm::kParamBiasName)];
+        auto &tensor = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kHLayerName + "."
+                                  + std::to_string(idx) + "." + Block::kLn2LayerName + "."
+                                  + nn::LayerNorm::kParamBiasName];
         ifs.read(reinterpret_cast<char *>(tensor->DataPtr()), tensor->SizeInBytes());
     }
     // transformer.h.{i}.mlp.c_fc.weight
     for (int idx = 0; idx < n_layer; idx++) {
-        auto &tensor = state_dict[std::format("{}.{}.{}.{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kHLayerName,
-                                              std::to_string(idx), Block::kMlpLayerName, MLP::kCFclayerName,
-                                              GPT2Linear::kParamWeightName)];
+        auto &tensor = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kHLayerName + "."
+                                  + std::to_string(idx) + "." + Block::kMlpLayerName + "." + MLP::kCFclayerName + "."
+                                  + GPT2Linear::kParamWeightName];
         ifs.read(reinterpret_cast<char *>(tensor->DataPtr()), tensor->SizeInBytes());
     }
     // transformer.h.{i}.mlp.c_fc.bias
     for (int idx = 0; idx < n_layer; idx++) {
-        auto &tensor = state_dict[std::format("{}.{}.{}.{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kHLayerName,
-                                              std::to_string(idx), Block::kMlpLayerName, MLP::kCFclayerName,
-                                              GPT2Linear::kParamBiasName)];
+        auto &tensor = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kHLayerName + "."
+                                  + std::to_string(idx) + "." + Block::kMlpLayerName + "." + MLP::kCFclayerName + "."
+                                  + GPT2Linear::kParamBiasName];
         ifs.read(reinterpret_cast<char *>(tensor->DataPtr()), tensor->SizeInBytes());
     }
     // transformer.h.{i}.mlp.c_proj.weight
     for (int idx = 0; idx < n_layer; idx++) {
-        auto &tensor = state_dict[std::format("{}.{}.{}.{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kHLayerName,
-                                              std::to_string(idx), Block::kMlpLayerName, MLP::kCProjLayerName,
-                                              GPT2Linear::kParamWeightName)];
+        auto &tensor = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kHLayerName + "."
+                                  + std::to_string(idx) + "." + Block::kMlpLayerName + "." + MLP::kCProjLayerName + "."
+                                  + GPT2Linear::kParamWeightName];
         ifs.read(reinterpret_cast<char *>(tensor->DataPtr()), tensor->SizeInBytes());
     }
     // transformer.h.{i}.mlp.c_proj.bias
     for (int idx = 0; idx < n_layer; idx++) {
-        auto &tensor = state_dict[std::format("{}.{}.{}.{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kHLayerName,
-                                              std::to_string(idx), Block::kMlpLayerName, MLP::kCProjLayerName,
-                                              GPT2Linear::kParamBiasName)];
+        auto &tensor = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kHLayerName + "."
+                                  + std::to_string(idx) + "." + Block::kMlpLayerName + "." + MLP::kCProjLayerName + "."
+                                  + GPT2Linear::kParamBiasName];
         ifs.read(reinterpret_cast<char *>(tensor->DataPtr()), tensor->SizeInBytes());
     }
     // transformer.ln_f.weight
-    auto &transformer_ln_f_weight = state_dict[std::format("{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kLnFLayerName,
-                                                           nn::LayerNorm::kParamWeightName)];
+    auto &transformer_ln_f_weight
+        = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kLnFLayerName + "."
+                     + nn::LayerNorm::kParamWeightName];
     ifs.read(reinterpret_cast<char *>(transformer_ln_f_weight->DataPtr()), transformer_ln_f_weight->SizeInBytes());
     // transformer.ln_f.bias
-    auto &transformer_ln_f_bias = state_dict[std::format("{}.{}.{}", GPT2::kTransformerLayerName, GPT2::kLnFLayerName,
-                                                         nn::LayerNorm::kParamBiasName)];
+    auto &transformer_ln_f_bias
+        = state_dict[std::string(GPT2::kTransformerLayerName) + "." + GPT2::kLnFLayerName + "."
+                     + nn::LayerNorm::kParamBiasName];
     ifs.read(reinterpret_cast<char *>(transformer_ln_f_bias->DataPtr()), transformer_ln_f_bias->SizeInBytes());
 
     return gpt2;

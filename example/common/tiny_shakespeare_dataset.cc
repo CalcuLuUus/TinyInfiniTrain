@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -61,14 +62,75 @@ TinyShakespeareFile ReadTinyShakespeareFile(const std::string &path, size_t sequ
     | magic(4B) | version(4B) | num_toks(4B) | reserved(1012B) | token数据           |
     ----------------------------------------------------------------------------------
        =================================== 作业 =================================== */
+    if (!std::filesystem::exists(path)) {
+        LOG(FATAL) << "File not found: " << path;
+    }
+    CHECK_GT(sequence_length, 0);
+
+    std::ifstream ifs(path, std::ios::binary);
+    CHECK(ifs.is_open()) << "Failed to open dataset file: " << path;
+
+    const auto header = ReadSeveralBytesFromIfstream(1024, &ifs);
+    CHECK_GE(header.size(), 12);
+
+    const auto magic = BytesToType<uint32_t>(header, 0);
+    const auto version = BytesToType<uint32_t>(header, 4);
+    (void)version;
+    const auto num_toks = BytesToType<uint32_t>(header, 8);
+    CHECK_GT(num_toks, 0) << "Empty dataset: " << path;
+
+    const auto type_it = kTypeMap.find(static_cast<int>(magic));
+    CHECK(type_it != kTypeMap.end()) << "Unknown dataset magic: " << magic;
+    const auto type = type_it->second;
+    const auto elem_size = kTypeToSize.at(type);
+
+    const uint64_t total_bytes = static_cast<uint64_t>(num_toks) * elem_size;
+    std::vector<uint8_t> raw(static_cast<size_t>(total_bytes));
+    ifs.read(reinterpret_cast<char *>(raw.data()), static_cast<std::streamsize>(total_bytes));
+    CHECK_EQ(static_cast<uint64_t>(ifs.gcount()), total_bytes) << "Failed to read token data from: " << path;
+
+    const int64_t num_chunks = static_cast<int64_t>(num_toks) / static_cast<int64_t>(sequence_length);
+    CHECK_GE(num_chunks, 2) << "Dataset too small for seq_len=" << sequence_length << ": num_toks=" << num_toks;
+
+    std::vector<int64_t> dims{num_chunks, static_cast<int64_t>(sequence_length)};
+    auto tensor = infini_train::Tensor(dims, DataType::kINT64);
+    auto *dst = static_cast<int64_t *>(tensor.DataPtr());
+
+    const int64_t to_copy = num_chunks * static_cast<int64_t>(sequence_length);
+    if (type == TinyShakespeareType::kUINT16) {
+        CHECK_EQ(elem_size, sizeof(uint16_t));
+        for (int64_t i = 0; i < to_copy; ++i) {
+            uint16_t tok;
+            std::memcpy(&tok, raw.data() + static_cast<size_t>(i) * sizeof(uint16_t), sizeof(uint16_t));
+            dst[i] = static_cast<int64_t>(tok);
+        }
+    } else if (type == TinyShakespeareType::kUINT32) {
+        CHECK_EQ(elem_size, sizeof(uint32_t));
+        for (int64_t i = 0; i < to_copy; ++i) {
+            uint32_t tok;
+            std::memcpy(&tok, raw.data() + static_cast<size_t>(i) * sizeof(uint32_t), sizeof(uint32_t));
+            dst[i] = static_cast<int64_t>(tok);
+        }
+    } else {
+        LOG(FATAL) << "Unsupported dataset token type";
+    }
+
+    return TinyShakespeareFile{.type = type, .dims = std::move(dims), .tensor = std::move(tensor)};
 }
 } // namespace
 
-TinyShakespeareDataset::TinyShakespeareDataset(const std::string &filepath, size_t sequence_length) {
+TinyShakespeareDataset::TinyShakespeareDataset(const std::string &filepath, size_t sequence_length)
+    : text_file_(ReadTinyShakespeareFile(filepath, sequence_length)),
+      sequence_length_(sequence_length),
+      sequence_size_in_bytes_(sequence_length * sizeof(int64_t)),
+      num_samples_(static_cast<size_t>(text_file_.dims[0] - 1)) {
     // =================================== 作业 ===================================
     // TODO：初始化数据集实例
     // HINT: 调用ReadTinyShakespeareFile加载数据文件
     // =================================== 作业 ===================================
+    CHECK_EQ(text_file_.dims.size(), 2);
+    CHECK_EQ(text_file_.dims[1], static_cast<int64_t>(sequence_length_));
+    CHECK_GE(text_file_.dims[0], 2);
 }
 
 std::pair<std::shared_ptr<infini_train::Tensor>, std::shared_ptr<infini_train::Tensor>>
