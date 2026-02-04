@@ -76,6 +76,187 @@ int SampleMult(float *probabilities, int n, float coin) {
     return n - 1; // in case of rounding errors
 }
 
+namespace {
+constexpr size_t kMaxTokenizerTrailingBytes = 64;
+
+bool ParseVocabNullTerminated(const std::vector<uint8_t> &body, uint32_t vocab_size, std::vector<std::string> *out) {
+    out->clear();
+    out->reserve(vocab_size);
+    size_t offset = 0;
+    for (uint32_t i = 0; i < vocab_size; ++i) {
+        if (offset >= body.size()) {
+            return false;
+        }
+        size_t end = offset;
+        while (end < body.size() && body[end] != 0) {
+            ++end;
+        }
+        if (end >= body.size()) {
+            return false; // no terminator
+        }
+        out->emplace_back(reinterpret_cast<const char *>(body.data() + offset), end - offset);
+        offset = end + 1; // skip '\0'
+    }
+    return offset <= body.size() && (body.size() - offset) <= kMaxTokenizerTrailingBytes;
+}
+
+bool ParseVocabFixedSlot(const std::vector<uint8_t> &body, uint32_t vocab_size, std::vector<std::string> *out) {
+    if (vocab_size == 0) {
+        return false;
+    }
+    if (body.size() % vocab_size != 0) {
+        return false;
+    }
+    const size_t slot = body.size() / vocab_size;
+    if (slot == 0 || slot > 1024) {
+        return false;
+    }
+    out->clear();
+    out->reserve(vocab_size);
+    for (uint32_t i = 0; i < vocab_size; ++i) {
+        const size_t base = static_cast<size_t>(i) * slot;
+        size_t len = 0;
+        while (len < slot && body[base + len] != 0) {
+            ++len;
+        }
+        out->emplace_back(reinterpret_cast<const char *>(body.data() + base), len);
+    }
+    return true;
+}
+
+bool ParseVocabLen16(const std::vector<uint8_t> &body, uint32_t vocab_size, std::vector<std::string> *out) {
+    out->clear();
+    out->reserve(vocab_size);
+    size_t offset = 0;
+    for (uint32_t i = 0; i < vocab_size; ++i) {
+        if (offset + sizeof(uint16_t) > body.size()) {
+            return false;
+        }
+        uint16_t len16 = 0;
+        std::memcpy(&len16, body.data() + offset, sizeof(uint16_t));
+        offset += sizeof(uint16_t);
+        const size_t len = static_cast<size_t>(len16);
+        if (offset + len > body.size()) {
+            return false;
+        }
+        out->emplace_back(reinterpret_cast<const char *>(body.data() + offset), len);
+        offset += len;
+    }
+    return offset <= body.size() && (body.size() - offset) <= kMaxTokenizerTrailingBytes;
+}
+
+bool ParseVocabLen32(const std::vector<uint8_t> &body, uint32_t vocab_size, std::vector<std::string> *out) {
+    out->clear();
+    out->reserve(vocab_size);
+    size_t offset = 0;
+    for (uint32_t i = 0; i < vocab_size; ++i) {
+        if (offset + sizeof(uint32_t) > body.size()) {
+            return false;
+        }
+        uint32_t len32 = 0;
+        std::memcpy(&len32, body.data() + offset, sizeof(uint32_t));
+        offset += sizeof(uint32_t);
+        const size_t len = static_cast<size_t>(len32);
+        if (offset + len > body.size()) {
+            return false;
+        }
+        out->emplace_back(reinterpret_cast<const char *>(body.data() + offset), len);
+        offset += len;
+    }
+    return offset <= body.size() && (body.size() - offset) <= kMaxTokenizerTrailingBytes;
+}
+
+// Some tokenizer formats include a float "score" per token (e.g. sentencepiece-style).
+// We ignore the score and only keep the token string.
+bool ParseVocabScoreLen32(const std::vector<uint8_t> &body, uint32_t vocab_size, std::vector<std::string> *out) {
+    out->clear();
+    out->reserve(vocab_size);
+    size_t offset = 0;
+    for (uint32_t i = 0; i < vocab_size; ++i) {
+        if (offset + sizeof(float) + sizeof(uint32_t) > body.size()) {
+            return false;
+        }
+        offset += sizeof(float); // score
+        uint32_t len32 = 0;
+        std::memcpy(&len32, body.data() + offset, sizeof(uint32_t));
+        offset += sizeof(uint32_t);
+        const size_t len = static_cast<size_t>(len32);
+        if (offset + len > body.size()) {
+            return false;
+        }
+        out->emplace_back(reinterpret_cast<const char *>(body.data() + offset), len);
+        offset += len;
+    }
+    return offset <= body.size() && (body.size() - offset) <= kMaxTokenizerTrailingBytes;
+}
+
+bool ParseVocabScoreLen16(const std::vector<uint8_t> &body, uint32_t vocab_size, std::vector<std::string> *out) {
+    out->clear();
+    out->reserve(vocab_size);
+    size_t offset = 0;
+    for (uint32_t i = 0; i < vocab_size; ++i) {
+        if (offset + sizeof(float) + sizeof(uint16_t) > body.size()) {
+            return false;
+        }
+        offset += sizeof(float); // score
+        uint16_t len16 = 0;
+        std::memcpy(&len16, body.data() + offset, sizeof(uint16_t));
+        offset += sizeof(uint16_t);
+        const size_t len = static_cast<size_t>(len16);
+        if (offset + len > body.size()) {
+            return false;
+        }
+        out->emplace_back(reinterpret_cast<const char *>(body.data() + offset), len);
+        offset += len;
+    }
+    return offset <= body.size() && (body.size() - offset) <= kMaxTokenizerTrailingBytes;
+}
+
+bool ParseVocabLen32Score(const std::vector<uint8_t> &body, uint32_t vocab_size, std::vector<std::string> *out) {
+    out->clear();
+    out->reserve(vocab_size);
+    size_t offset = 0;
+    for (uint32_t i = 0; i < vocab_size; ++i) {
+        if (offset + sizeof(uint32_t) > body.size()) {
+            return false;
+        }
+        uint32_t len32 = 0;
+        std::memcpy(&len32, body.data() + offset, sizeof(uint32_t));
+        offset += sizeof(uint32_t);
+        const size_t len = static_cast<size_t>(len32);
+        if (offset + len + sizeof(float) > body.size()) {
+            return false;
+        }
+        out->emplace_back(reinterpret_cast<const char *>(body.data() + offset), len);
+        offset += len;
+        offset += sizeof(float); // score
+    }
+    return offset <= body.size() && (body.size() - offset) <= kMaxTokenizerTrailingBytes;
+}
+
+bool ParseVocabLen16Score(const std::vector<uint8_t> &body, uint32_t vocab_size, std::vector<std::string> *out) {
+    out->clear();
+    out->reserve(vocab_size);
+    size_t offset = 0;
+    for (uint32_t i = 0; i < vocab_size; ++i) {
+        if (offset + sizeof(uint16_t) > body.size()) {
+            return false;
+        }
+        uint16_t len16 = 0;
+        std::memcpy(&len16, body.data() + offset, sizeof(uint16_t));
+        offset += sizeof(uint16_t);
+        const size_t len = static_cast<size_t>(len16);
+        if (offset + len + sizeof(float) > body.size()) {
+            return false;
+        }
+        out->emplace_back(reinterpret_cast<const char *>(body.data() + offset), len);
+        offset += len;
+        offset += sizeof(float); // score
+    }
+    return offset <= body.size() && (body.size() - offset) <= kMaxTokenizerTrailingBytes;
+}
+} // namespace
+
 Tokenizer::Tokenizer(const std::string &filepath) {
     /* ===================================== 作业 =====================================
     TODO：实现Tokenizer二进制文件加载
@@ -103,30 +284,43 @@ Tokenizer::Tokenizer(const std::string &filepath) {
     CHECK(kEotMap.find(magic_number_) != kEotMap.end()) << "Unknown tokenizer magic: " << magic_number_;
     eot_token_ = kEotMap.at(magic_number_);
 
-    token_table_.clear();
-    token_table_.reserve(vocab_size_);
+    // Read the vocabulary table as a whole and parse in-memory. This is more robust to
+    // minor format variations across versions/models.
+    ifs.seekg(0, std::ios::end);
+    const auto end_pos = ifs.tellg();
+    CHECK(end_pos >= static_cast<std::streampos>(1024));
+    const size_t body_size = static_cast<size_t>(end_pos) - 1024;
+    ifs.seekg(1024, std::ios::beg);
 
-    for (uint32_t i = 0; i < vocab_size_; ++i) {
-        uint32_t len = 0;
-        if (version_u32 == static_cast<uint32_t>(Version::kV1)) {
-            uint16_t l16 = 0;
-            ifs.read(reinterpret_cast<char *>(&l16), sizeof(uint16_t));
-            CHECK(ifs.good()) << "Tokenizer file truncated while reading token length";
-            len = static_cast<uint32_t>(l16);
-        } else if (version_u32 == static_cast<uint32_t>(Version::kV2)) {
-            ifs.read(reinterpret_cast<char *>(&len), sizeof(uint32_t));
-            CHECK(ifs.good()) << "Tokenizer file truncated while reading token length";
-        } else {
-            LOG(FATAL) << "Unsupported tokenizer version: " << version_u32;
-        }
-
-        std::string token(len, '\0');
-        if (len > 0) {
-            ifs.read(token.data(), static_cast<std::streamsize>(len));
-            CHECK(ifs.good()) << "Tokenizer file truncated while reading token bytes";
-        }
-        token_table_.push_back(std::move(token));
+    std::vector<uint8_t> body(body_size);
+    if (body_size > 0) {
+        ifs.read(reinterpret_cast<char *>(body.data()), static_cast<std::streamsize>(body_size));
+        CHECK_EQ(static_cast<size_t>(ifs.gcount()), body_size) << "Tokenizer file truncated while reading vocab table";
     }
+
+    std::vector<std::string> parsed;
+    bool ok = false;
+    if (version_u32 == static_cast<uint32_t>(Version::kV1)) {
+        ok = ParseVocabLen16(body, vocab_size_, &parsed) || ParseVocabLen32(body, vocab_size_, &parsed)
+             || ParseVocabScoreLen32(body, vocab_size_, &parsed) || ParseVocabScoreLen16(body, vocab_size_, &parsed)
+             || ParseVocabLen32Score(body, vocab_size_, &parsed) || ParseVocabLen16Score(body, vocab_size_, &parsed)
+             || ParseVocabNullTerminated(body, vocab_size_, &parsed) || ParseVocabFixedSlot(body, vocab_size_, &parsed);
+    } else if (version_u32 == static_cast<uint32_t>(Version::kV2)) {
+        ok = ParseVocabLen32(body, vocab_size_, &parsed) || ParseVocabScoreLen32(body, vocab_size_, &parsed)
+             || ParseVocabLen32Score(body, vocab_size_, &parsed) || ParseVocabLen16(body, vocab_size_, &parsed)
+             || ParseVocabScoreLen16(body, vocab_size_, &parsed) || ParseVocabLen16Score(body, vocab_size_, &parsed)
+             || ParseVocabNullTerminated(body, vocab_size_, &parsed) || ParseVocabFixedSlot(body, vocab_size_, &parsed);
+    } else {
+        // Unknown version: try common layouts anyway.
+        ok = ParseVocabLen16(body, vocab_size_, &parsed) || ParseVocabLen32(body, vocab_size_, &parsed)
+             || ParseVocabScoreLen32(body, vocab_size_, &parsed) || ParseVocabScoreLen16(body, vocab_size_, &parsed)
+             || ParseVocabLen32Score(body, vocab_size_, &parsed) || ParseVocabLen16Score(body, vocab_size_, &parsed)
+             || ParseVocabNullTerminated(body, vocab_size_, &parsed) || ParseVocabFixedSlot(body, vocab_size_, &parsed);
+        CHECK(ok) << "Unsupported tokenizer version: " << version_u32;
+    }
+    CHECK(ok) << "Failed to parse tokenizer vocab table (magic=" << magic_number_ << ", version=" << version_u32
+              << ", vocab_size=" << vocab_size_ << ", body_bytes=" << body.size() << ")";
+    token_table_ = std::move(parsed);
 }
 
 std::string Tokenizer::Decode(uint32_t token_id) const {
