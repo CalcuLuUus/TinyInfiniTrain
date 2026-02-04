@@ -79,6 +79,26 @@ int SampleMult(float *probabilities, int n, float coin) {
 namespace {
 constexpr size_t kMaxTokenizerTrailingBytes = 64;
 
+bool ParseVocabLen8(const std::vector<uint8_t> &body, uint32_t vocab_size, std::vector<std::string> *out) {
+    out->clear();
+    out->reserve(vocab_size);
+    size_t offset = 0;
+    for (uint32_t i = 0; i < vocab_size; ++i) {
+        if (offset + sizeof(uint8_t) > body.size()) {
+            return false;
+        }
+        const uint8_t len8 = body[offset];
+        offset += sizeof(uint8_t);
+        const size_t len = static_cast<size_t>(len8);
+        if (offset + len > body.size()) {
+            return false;
+        }
+        out->emplace_back(reinterpret_cast<const char *>(body.data() + offset), len);
+        offset += len;
+    }
+    return offset <= body.size() && (body.size() - offset) <= kMaxTokenizerTrailingBytes;
+}
+
 bool ParseVocabNullTerminated(const std::vector<uint8_t> &body, uint32_t vocab_size, std::vector<std::string> *out) {
     out->clear();
     out->reserve(vocab_size);
@@ -301,18 +321,21 @@ Tokenizer::Tokenizer(const std::string &filepath) {
     std::vector<std::string> parsed;
     bool ok = false;
     if (version_u32 == static_cast<uint32_t>(Version::kV1)) {
-        ok = ParseVocabLen16(body, vocab_size_, &parsed) || ParseVocabLen32(body, vocab_size_, &parsed)
+        ok = ParseVocabLen8(body, vocab_size_, &parsed) || ParseVocabLen16(body, vocab_size_, &parsed)
+             || ParseVocabLen32(body, vocab_size_, &parsed)
              || ParseVocabScoreLen32(body, vocab_size_, &parsed) || ParseVocabScoreLen16(body, vocab_size_, &parsed)
              || ParseVocabLen32Score(body, vocab_size_, &parsed) || ParseVocabLen16Score(body, vocab_size_, &parsed)
              || ParseVocabNullTerminated(body, vocab_size_, &parsed) || ParseVocabFixedSlot(body, vocab_size_, &parsed);
     } else if (version_u32 == static_cast<uint32_t>(Version::kV2)) {
-        ok = ParseVocabLen32(body, vocab_size_, &parsed) || ParseVocabScoreLen32(body, vocab_size_, &parsed)
+        ok = ParseVocabLen8(body, vocab_size_, &parsed) || ParseVocabLen32(body, vocab_size_, &parsed)
+             || ParseVocabScoreLen32(body, vocab_size_, &parsed)
              || ParseVocabLen32Score(body, vocab_size_, &parsed) || ParseVocabLen16(body, vocab_size_, &parsed)
              || ParseVocabScoreLen16(body, vocab_size_, &parsed) || ParseVocabLen16Score(body, vocab_size_, &parsed)
              || ParseVocabNullTerminated(body, vocab_size_, &parsed) || ParseVocabFixedSlot(body, vocab_size_, &parsed);
     } else {
         // Unknown version: try common layouts anyway.
-        ok = ParseVocabLen16(body, vocab_size_, &parsed) || ParseVocabLen32(body, vocab_size_, &parsed)
+        ok = ParseVocabLen8(body, vocab_size_, &parsed) || ParseVocabLen16(body, vocab_size_, &parsed)
+             || ParseVocabLen32(body, vocab_size_, &parsed)
              || ParseVocabScoreLen32(body, vocab_size_, &parsed) || ParseVocabScoreLen16(body, vocab_size_, &parsed)
              || ParseVocabLen32Score(body, vocab_size_, &parsed) || ParseVocabLen16Score(body, vocab_size_, &parsed)
              || ParseVocabNullTerminated(body, vocab_size_, &parsed) || ParseVocabFixedSlot(body, vocab_size_, &parsed);
