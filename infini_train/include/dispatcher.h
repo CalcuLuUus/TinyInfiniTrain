@@ -15,13 +15,19 @@ class KernelFunction {
 public:
     template <typename FuncT> explicit KernelFunction(FuncT &&func) : func_ptr_(reinterpret_cast<void *>(func)) {}
 
-    template <typename RetT, class... ArgsT> RetT Call(ArgsT&&... args) const {
+    template <typename T>
+    using KernelParamT = std::conditional_t<std::is_arithmetic_v<std::remove_cvref_t<T>>
+                                               || std::is_enum_v<std::remove_cvref_t<T>>
+                                               || std::is_pointer_v<std::remove_cvref_t<T>>,
+                                           std::remove_cvref_t<T>, const std::remove_cvref_t<T> &>;
+
+    template <typename RetT, class... ArgsT> RetT Call(ArgsT &&...args) const {
         // =================================== 作业 ===================================
         // TODO：实现通用kernel调用接口
         // 功能描述：将存储的函数指针转换为指定类型并调用
         // =================================== 作业 ===================================
         
-        using FuncT = RetT (*)(ArgsT...);
+        using FuncT = RetT (*)(KernelParamT<ArgsT>...);
         FuncT fn = reinterpret_cast<FuncT>(func_ptr_);
         if constexpr (std::is_same_v<RetT, void>) {
             fn(std::forward<ArgsT>(args)...);
